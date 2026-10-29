@@ -1,0 +1,137 @@
+// Pet Market Club - Modelo de datos
+// Sprint 2: entidades del catalogo y del motor de inventario.
+// El resto de las entidades (Pedido, Pago, Envio, etc.) se agregan
+// en los sprints siguientes segun el backlog.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+enum RolUsuario {
+  ADMINISTRADOR
+  CLIENTE
+}
+
+enum TipoEtiqueta {
+  ESPECIE
+  EDAD
+  TAMANIO
+  CONDICION
+  TIPO_AGUA
+}
+
+enum TipoMovimiento {
+  ENTRADA_PROVEEDOR
+  SALIDA_VENTA
+  SALIDA_VENCIDO
+  SALIDA_ROTURA
+  SALIDA_USO_INTERNO
+  RETENCION_PAGO_CAIDO
+  LIBERACION_RETENIDO
+}
+
+// ---------------------------------------------------------------- usuarios
+
+model Usuario {
+  id           Int        @id @default(autoincrement())
+  email        String     @unique @db.VarChar(120)
+  passwordHash String?    @db.VarChar(255)
+  idRedSocial  String?    @db.VarChar(120)
+  rol          RolUsuario @default(CLIENTE)
+  nombre       String     @db.VarChar(60)
+  apellido     String     @db.VarChar(60)
+  telefono     String?    @db.VarChar(30)
+  activo       Boolean    @default(true)
+  fechaAlta    DateTime   @default(now())
+
+  movimientos MovimientoStock[]
+
+  @@map("usuarios")
+}
+
+// ---------------------------------------------------------------- catalogo
+
+model Categoria {
+  id     Int     @id @default(autoincrement())
+  nombre String  @unique @db.VarChar(60)
+  orden  Int     @default(0)
+  activa Boolean @default(true)
+
+  productos Producto[]
+
+  @@map("categorias")
+}
+
+model Producto {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @db.VarChar(120)
+  descripcion String?  @db.Text
+  precio      Decimal  @db.Decimal(12, 2)
+  stockMinimo Int      @default(5)
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  categoriaId Int?
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id])
+
+  etiquetas   ProductoEtiqueta[]
+  movimientos MovimientoStock[]
+
+  // OJO: no existe un campo "stock".
+  // La existencia se calcula sumando los MovimientoStock.
+  // Ver src/services/stock.service.js
+
+  @@map("productos")
+}
+
+model Etiqueta {
+  id         Int          @id @default(autoincrement())
+  nombre     String       @db.VarChar(60)
+  tipo       TipoEtiqueta
+  excluyente Boolean      @default(false)
+
+  productos ProductoEtiqueta[]
+
+  @@unique([nombre, tipo])
+  @@map("etiquetas")
+}
+
+model ProductoEtiqueta {
+  productoId Int
+  etiquetaId Int
+
+  producto Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  etiqueta Etiqueta @relation(fields: [etiquetaId], references: [id], onDelete: Cascade)
+
+  @@id([productoId, etiquetaId])
+  @@map("producto_etiqueta")
+}
+
+// ---------------------------------------------------------------- inventario
+
+model MovimientoStock {
+  id            Int            @id @default(autoincrement())
+  fecha         DateTime       @default(now())
+  tipo          TipoMovimiento
+  cantidad      Int // positivo en entradas, negativo en salidas
+  justificacion String         @db.VarChar(255)
+
+  productoId Int
+  producto   Producto @relation(fields: [productoId], references: [id])
+
+  usuarioId Int
+  usuario   Usuario @relation(fields: [usuarioId], references: [id])
+
+  // Los movimientos no se editan ni se borran.
+  // Una correccion se hace con un movimiento compensatorio.
+
+  @@index([productoId, fecha])
+  @@map("movimientos_stock")
+}
